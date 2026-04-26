@@ -1,6 +1,6 @@
-import "dotenv/config";
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
+import dotenv from "dotenv";
 import * as deepl from "deepl-node";
 import { db } from "../db/database";
 import { fetchAllFeeds } from "../feeds/fetcher";
@@ -46,6 +46,12 @@ function createWindow() {
 app.whenReady().then(async () => {
   if (process.platform === "win32") {
     app.setAppUserModelId("com.crossoverflyest.aether");
+  }
+  // APIキーは %APPDATA%/Aether/.env （Windows）から読み込む
+  dotenv.config({ path: path.join(app.getPath("userData"), ".env") });
+  // 開発時のフォールバック: プロジェクトルートの .env（userData側が無い時のみ）
+  if (!process.env.DEEPL_API_KEY) {
+    dotenv.config({ path: path.join(app.getAppPath(), ".env") });
   }
   await db.initialize();
   createWindow();

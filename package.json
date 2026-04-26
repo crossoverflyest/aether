@@ -1,6 +1,6 @@
 {
   "name": "aether",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Aether — 世界のニュースを多言語で読み解くデスクトップアプリ",
   "main": "dist/main/main/main.js",
   "scripts": {
