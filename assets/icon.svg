@@ -1,0 +1,100 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 中央球体（惑星）のグラデーション -->
+    <radialGradient id="planet" cx="0.32" cy="0.30" r="0.78">
+      <stop offset="0%"   stop-color="#fde68a"/>
+      <stop offset="18%"  stop-color="#fbbf24"/>
+      <stop offset="42%"  stop-color="#a855f7"/>
+      <stop offset="78%"  stop-color="#312e81"/>
+      <stop offset="100%" stop-color="#0f0a26"/>
+    </radialGradient>
+
+    <!-- 球体ハイライト -->
+    <radialGradient id="planetHi" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="60%"  stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- リング（軌道）グラデーション -->
+    <linearGradient id="ringA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#22d3ee" stop-opacity="0.3"/>
+      <stop offset="35%"  stop-color="#22d3ee"/>
+      <stop offset="50%"  stop-color="#e9d5ff"/>
+      <stop offset="65%"  stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.3"/>
+    </linearGradient>
+    <linearGradient id="ringB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#f472b6" stop-opacity="0.3"/>
+      <stop offset="35%"  stop-color="#f472b6"/>
+      <stop offset="50%"  stop-color="#fce7f3"/>
+      <stop offset="65%"  stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#c084fc" stop-opacity="0.3"/>
+    </linearGradient>
+    <linearGradient id="ringC" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#60a5fa" stop-opacity="0.3"/>
+      <stop offset="35%"  stop-color="#60a5fa"/>
+      <stop offset="50%"  stop-color="#dbeafe"/>
+      <stop offset="65%"  stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- 中心コアグロー -->
+    <radialGradient id="core" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"   stop-color="#fffbeb"/>
+      <stop offset="40%"  stop-color="#facc15" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#facc15" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 拡散グロー（弱め） -->
+    <radialGradient id="aura" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"   stop-color="#a855f7" stop-opacity="0.35"/>
+      <stop offset="60%"  stop-color="#7c3aed" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#312e81" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 軽いブラー -->
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+  </defs>
+
+  <!-- 周辺光（オーラ） -->
+  <circle cx="512" cy="512" r="512" fill="url(#aura)"/>
+
+  <!-- 後方リング（球体の奥側を通る半分の弧） -->
+  <g transform="translate(512 512)" fill="none" stroke-width="36" stroke-linecap="round">
+    <g transform="rotate(20)">
+      <path d="M -490,0 A 490,170 0 0 1 490,0" stroke="url(#ringA)"/>
+    </g>
+    <g transform="rotate(-50)">
+      <path d="M -490,0 A 490,170 0 0 1 490,0" stroke="url(#ringB)"/>
+    </g>
+    <g transform="rotate(85)">
+      <path d="M -490,0 A 490,170 0 0 1 490,0" stroke="url(#ringC)"/>
+    </g>
+  </g>
+
+  <!-- 中央惑星（半径280 = アイコンの55%） -->
+  <circle cx="512" cy="512" r="280" fill="url(#planet)"/>
+  <circle cx="512" cy="512" r="280" fill="url(#planetHi)"/>
+  <!-- 上部の鋭いハイライト -->
+  <ellipse cx="438" cy="408" rx="86" ry="48" fill="#ffffff" opacity="0.32"/>
+  <ellipse cx="416" cy="392" rx="28" ry="14" fill="#ffffff" opacity="0.65"/>
+
+  <!-- 中心コアの内なる光 -->
+  <circle cx="512" cy="512" r="120" fill="url(#core)" opacity="0.8" filter="url(#softGlow)"/>
+
+  <!-- 前方リング（球体の手前を通る半分の弧） -->
+  <g transform="translate(512 512)" fill="none" stroke-width="36" stroke-linecap="round">
+    <g transform="rotate(20)">
+      <path d="M -490,0 A 490,170 0 0 0 490,0" stroke="url(#ringA)"/>
+    </g>
+    <g transform="rotate(-50)">
+      <path d="M -490,0 A 490,170 0 0 0 490,0" stroke="url(#ringB)"/>
+    </g>
+    <g transform="rotate(85)">
+      <path d="M -490,0 A 490,170 0 0 0 490,0" stroke="url(#ringC)"/>
+    </g>
+  </g>
+</svg>
