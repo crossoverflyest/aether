@@ -56,8 +56,13 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis",
+      "target": [
+        { "target": "nsis", "arch": ["x64", "arm64"] }
+      ],
       "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     },
     "files": [
       "dist/**/*",
