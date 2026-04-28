@@ -61,9 +61,6 @@
       ],
       "icon": "assets/icon.ico"
     },
-    "nsis": {
-      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
-    },
     "files": [
       "dist/**/*",
       "node_modules/**/*",
