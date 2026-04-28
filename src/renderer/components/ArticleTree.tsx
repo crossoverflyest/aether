@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import type { Article, ArticleGroup } from "../../shared/types";
+import type { Article, ArticleGroup, TreeDefaultExpand } from "../../shared/types";
 import ArticleRow from "./ArticleRow";
 
 interface Props {
@@ -8,13 +8,39 @@ interface Props {
   onSelect: (a: Article) => void;
   onMarkAllRead: (ids: number[]) => void;
   translatedTitles: Record<number, string>;
+  defaultExpand: TreeDefaultExpand;
+  onContextMenu: (a: Article, x: number, y: number) => void;
 }
 
-export default function ArticleTree({ groups, selected, onSelect, onMarkAllRead, translatedTitles }: Props) {
+export default function ArticleTree({
+  groups, selected, onSelect, onMarkAllRead, translatedTitles, defaultExpand, onContextMenu,
+}: Props) {
   const [openYears, setOpenYears]   = useState<Set<string>>(new Set());
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
   const [openDays, setOpenDays]     = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
+  const initializedExpandRef = useRef<TreeDefaultExpand | null>(null);
+  const groupsHadDataRef = useRef(false);
+
+  useEffect(() => {
+    if (groups.length === 0) {
+      groupsHadDataRef.current = false;
+      return;
+    }
+    if (
+      groupsHadDataRef.current &&
+      initializedExpandRef.current === defaultExpand
+    ) {
+      return;
+    }
+    groupsHadDataRef.current = true;
+    initializedExpandRef.current = defaultExpand;
+
+    const expanded = computeDefaultExpansion(groups, defaultExpand);
+    setOpenYears(expanded.years);
+    setOpenMonths(expanded.months);
+    setOpenDays(expanded.days);
+  }, [groups, defaultExpand]);
 
   // クリック選択時にArticleTreeにフォーカスを戻す（矢印キー操作を維持）
   const handleSelect = useCallback((a: Article) => {
@@ -123,6 +149,7 @@ export default function ArticleTree({ groups, selected, onSelect, onMarkAllRead,
                       selected={selected?.id === article.id}
                       onSelect={handleSelect}
                       translatedTitle={translatedTitles[article.id] ?? null}
+                      onContextMenu={onContextMenu}
                     />
                   ))}
                 </div>
@@ -176,4 +203,65 @@ function toggle(s: Set<string>, key: string): Set<string> {
   const next = new Set(s);
   next.has(key) ? next.delete(key) : next.add(key);
   return next;
+}
+
+interface ExpansionSets {
+  years:  Set<string>;
+  months: Set<string>;
+  days:   Set<string>;
+}
+
+function computeDefaultExpansion(
+  groups: ArticleGroup[],
+  mode: TreeDefaultExpand
+): ExpansionSets {
+  const years  = new Set<string>();
+  const months = new Set<string>();
+  const days   = new Set<string>();
+
+  if (mode === "none" || groups.length === 0) {
+    return { years, months, days };
+  }
+
+  if (mode === "all") {
+    for (const y of groups) {
+      years.add(y.label);
+      for (const m of y.children ?? []) {
+        months.add(m.label);
+        for (const d of m.children ?? []) {
+          days.add(d.label);
+        }
+      }
+    }
+    return { years, months, days };
+  }
+
+  const now = new Date();
+  const yearLabel  = String(now.getFullYear());
+  const monthLabel = `${yearLabel}/${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const dayLabel   = `${monthLabel}/${String(now.getDate()).padStart(2, "0")}`;
+
+  const matchedYear = groups.find(y => y.label === yearLabel) ?? groups[0];
+  if (!matchedYear) return { years, months, days };
+  years.add(matchedYear.label);
+
+  const matchedMonth =
+    matchedYear.children?.find(m => m.label === monthLabel) ??
+    matchedYear.children?.[0];
+  if (!matchedMonth) return { years, months, days };
+  months.add(matchedMonth.label);
+
+  if (mode === "currentMonth") {
+    for (const d of matchedMonth.children ?? []) {
+      days.add(d.label);
+    }
+    return { years, months, days };
+  }
+
+  // mode === "today"
+  const matchedDay =
+    matchedMonth.children?.find(d => d.label === dayLabel) ??
+    matchedMonth.children?.[0];
+  if (matchedDay) days.add(matchedDay.label);
+  return { years, months, days };
 }

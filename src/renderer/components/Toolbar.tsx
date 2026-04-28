@@ -6,9 +6,10 @@ interface Props {
   onRefresh: () => void;
   filter: FilterOptions;
   onFilterChange: (f: FilterOptions) => void;
+  onOpenSettings: () => void;
 }
 
-export default function Toolbar({ loading, onRefresh, filter, onFilterChange }: Props) {
+export default function Toolbar({ loading, onRefresh, filter, onFilterChange, onOpenSettings }: Props) {
   const setSortKey = (sortKey: SortKey) =>
     onFilterChange({ ...filter, sortKey });
 
@@ -29,7 +30,7 @@ export default function Toolbar({ loading, onRefresh, filter, onFilterChange }: 
 
       <div className="flex items-center gap-2 ml-auto">
         <span className="text-xs text-slate-400">並び替え:</span>
-        {(["publishedAt", "source", "category"] as SortKey[]).map(k => (
+        {(["publishedAt", "source"] as SortKey[]).map(k => (
           <button
             key={k}
             onClick={() => setSortKey(k)}
@@ -38,7 +39,7 @@ export default function Toolbar({ loading, onRefresh, filter, onFilterChange }: 
                 ? "bg-slate-600 text-white"
                 : "text-slate-400 hover:text-slate-200"}`}
           >
-            {k === "publishedAt" ? "日時" : k === "source" ? "ソース" : "カテゴリ"}
+            {k === "publishedAt" ? "日時" : "ソース"}
           </button>
         ))}
         <button
@@ -47,6 +48,14 @@ export default function Toolbar({ loading, onRefresh, filter, onFilterChange }: 
           title="昇順/降順切り替え"
         >
           {filter.sortOrder === "desc" ? "↓ 新しい順" : "↑ 古い順"}
+        </button>
+        <button
+          onClick={onOpenSettings}
+          className="ml-2 text-base px-2 py-1 text-slate-400 hover:text-sky-300 transition-colors"
+          title="設定"
+          aria-label="設定を開く"
+        >
+          ⚙
         </button>
       </div>
     </div>

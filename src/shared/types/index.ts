@@ -32,7 +32,17 @@ export interface ArticleGroup {
   unreadCount: number;
 }
 
-export type SortKey = "publishedAt" | "source" | "category";
+export type SortKey = "publishedAt" | "source";
+
+export type TreeDefaultExpand = "today" | "currentMonth" | "all" | "none";
+
+export interface AppSettings {
+  treeDefaultExpand: TreeDefaultExpand;
+}
+
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  treeDefaultExpand: "today",
+};
 export type SortOrder = "asc" | "desc";
 
 export interface FilterOptions {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { FilterOptions } from "../shared/types";
+import type { AppSettings, FilterOptions } from "../shared/types";
 
 contextBridge.exposeInMainWorld("api", {
   articles: {
@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("api", {
     getCachedTitleTranslation: (id: number) => ipcRenderer.invoke("articles:getCachedTitleTranslation", id),
     translateTitlesBatch: (items: Array<{ id: number; title: string }>) =>
       ipcRenderer.invoke("articles:translateTitlesBatch", items),
+    rebuildAll: () => ipcRenderer.invoke("articles:rebuildAll") as Promise<{ deleted: number }>,
   },
   feeds: {
     list:          ()          => ipcRenderer.invoke("feeds:list"),
@@ -36,5 +37,25 @@ contextBridge.exposeInMainWorld("api", {
     removeArticle:  (articleId: number, clipId: number) =>
                       ipcRenderer.invoke("clips:removeArticle", articleId, clipId),
     forArticle:     (articleId: number) => ipcRenderer.invoke("clips:forArticle", articleId),
+  },
+  settings: {
+    get:             () => ipcRenderer.invoke("settings:get") as Promise<AppSettings>,
+    set:             (patch: Partial<AppSettings>) =>
+                       ipcRenderer.invoke("settings:set", patch) as Promise<AppSettings>,
+    getDeeplApiKey:  () => ipcRenderer.invoke("settings:getDeeplApiKey") as Promise<string>,
+    setDeeplApiKey:  (key: string) => ipcRenderer.invoke("settings:setDeeplApiKey", key),
+  },
+  shell: {
+    openExternal:    (url: string) => ipcRenderer.invoke("shell:openExternal", url),
+  },
+  menu: {
+    onOpenSettings: (cb: () => void) => {
+      ipcRenderer.on("menu:openSettings", cb);
+      return () => ipcRenderer.removeListener("menu:openSettings", cb);
+    },
+    onRefreshNews: (cb: () => void) => {
+      ipcRenderer.on("menu:refreshNews", cb);
+      return () => ipcRenderer.removeListener("menu:refreshNews", cb);
+    },
   },
 });

@@ -1,20 +1,28 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, ipcMain } from "electron";
 import path from "path";
 import dotenv from "dotenv";
 import * as deepl from "deepl-node";
 import { db } from "../db/database";
 import { fetchAllFeeds } from "../feeds/fetcher";
 import { extractArticle } from "../feeds/extractor";
-import type { FilterOptions } from "../shared/types";
+import { loadWindowState, bindStateSaver } from "./window-state";
+import { loadSettings, saveSettings } from "./settings";
+import { setEnvVar } from "./env-writer";
+import { buildAppMenu } from "./menu";
+import type { AppSettings, FilterOptions } from "../shared/types";
 
 const isDev = process.env.NODE_ENV === "development";
 
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
+  const state = loadWindowState();
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
     minWidth: 900,
     minHeight: 600,
     title: "Aether",
@@ -30,6 +38,10 @@ function createWindow() {
     titleBarStyle: "hiddenInset",
     backgroundColor: "#0f172a",
   });
+
+  if (state.isMaximized) mainWindow.maximize();
+
+  bindStateSaver(mainWindow);
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
@@ -54,6 +66,7 @@ app.whenReady().then(async () => {
     dotenv.config({ path: path.join(app.getAppPath(), ".env") });
   }
   await db.initialize();
+  Menu.setApplicationMenu(buildAppMenu(() => mainWindow));
   createWindow();
 
   // 起動時にニュースを取得
@@ -227,3 +240,27 @@ ipcMain.handle("clips:removeArticle", (_event, articleId: number, clipId: number
   return { ok: true };
 });
 ipcMain.handle("clips:forArticle", (_event, articleId: number) => db.getClipsForArticle(articleId));
+
+// ===== Settings =====
+ipcMain.handle("settings:get", () => loadSettings());
+ipcMain.handle("settings:set", (_event, patch: Partial<AppSettings>) => saveSettings(patch));
+ipcMain.handle("settings:getDeeplApiKey", () => process.env.DEEPL_API_KEY ?? "");
+ipcMain.handle("settings:setDeeplApiKey", (_event, key: string) => {
+  setEnvVar("DEEPL_API_KEY", key.trim());
+  return { ok: true };
+});
+
+// ===== Shell =====
+ipcMain.handle("shell:openExternal", async (_event, url: string) => {
+  const { shell } = await import("electron");
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
+// ===== 全記事を削除して再取得 =====
+ipcMain.handle("articles:rebuildAll", async () => {
+  const result = db.rebuildAllArticles();
+  await fetchAllFeeds();
+  mainWindow?.webContents.send("news:refreshed");
+  return { deleted: result.deleted };
+});

@@ -3,7 +3,10 @@ import Sidebar from "./components/Sidebar";
 import ArticleTree from "./components/ArticleTree";
 import ArticleDetail from "./components/ArticleDetail";
 import Toolbar from "./components/Toolbar";
-import type { Article, ArticleGroup, FilterOptions, Clip } from "../shared/types";
+import SettingsDialog from "./components/SettingsDialog";
+import ArticleContextMenu from "./components/ArticleContextMenu";
+import { DEFAULT_APP_SETTINGS } from "../shared/types";
+import type { AppSettings, Article, ArticleGroup, FilterOptions, Clip } from "../shared/types";
 
 const DEFAULT_FILTER: FilterOptions = {
   status: "all",
@@ -37,6 +40,21 @@ export default function App() {
   const [loading, setLoading]       = useState(false);
   const [translatedTitles, setTranslatedTitles] = useState<Record<number, string>>({});
   const [clips, setClips]           = useState<Clip[]>([]);
+  const [settings, setSettings]     = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [contextMenu, setContextMenu]   = useState<{ article: Article; x: number; y: number } | null>(null);
+
+  const openContextMenu = useCallback((article: Article, x: number, y: number) => {
+    setContextMenu({ article, x, y });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  useEffect(() => {
+    window.api.settings.get().then(setSettings).catch(err =>
+      console.error("Failed to load settings:", err)
+    );
+  }, []);
 
   const loadClips = useCallback(async () => {
     const list = await window.api.clips.list();
@@ -97,6 +115,12 @@ export default function App() {
     return off;
   }, [filter, load]);
 
+  // メニュー連携
+  useEffect(() => {
+    const offSettings = window.api.menu.onOpenSettings(() => setSettingsOpen(true));
+    return offSettings;
+  }, []);
+
   // groupsが更新されたら、英語タイトルを抽出して一括翻訳
   useEffect(() => {
     const all = collectArticles(groups);
@@ -132,6 +156,11 @@ export default function App() {
     await load(filter);
   }, [filter, load]);
 
+  useEffect(() => {
+    const off = window.api.menu.onRefreshNews(() => { handleRefresh(); });
+    return off;
+  }, [handleRefresh]);
+
   const handleMarkAllRead = useCallback(async (ids: number[]) => {
     await window.api.articles.markAllRead(ids);
     await load(filter);
@@ -154,6 +183,7 @@ export default function App() {
           onRefresh={handleRefresh}
           filter={filter}
           onFilterChange={setFilter}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
         <div className="flex flex-1 min-h-0">
           <ArticleTree
@@ -162,6 +192,8 @@ export default function App() {
             onSelect={handleSelect}
             onMarkAllRead={handleMarkAllRead}
             translatedTitles={translatedTitles}
+            defaultExpand={settings.treeDefaultExpand}
+            onContextMenu={openContextMenu}
           />
           <ArticleDetail
             article={selected}
@@ -171,6 +203,27 @@ export default function App() {
           />
         </div>
       </div>
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSettingsChanged={setSettings}
+        onSourcesChanged={() => load(filter)}
+        onArticlesRebuilt={() => {
+          setSelected(null);
+          setTranslatedTitles({});
+          load(filter);
+        }}
+      />
+      {contextMenu && (
+        <ArticleContextMenu
+          article={contextMenu.article}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          clips={clips}
+          onClose={closeContextMenu}
+          onClipsChanged={loadClips}
+        />
+      )}
     </div>
   );
 }

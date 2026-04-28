@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS article_clips (
   FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE,
   FOREIGN KEY(clip_id)    REFERENCES clips(id)    ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS app_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_status        ON articles(status);
 CREATE INDEX IF NOT EXISTS idx_articles_category      ON articles(category);
@@ -79,26 +83,144 @@ class NewsDatabase {
     try { this.db.run("ALTER TABLE article_translations ADD COLUMN translated_title TEXT"); } catch {}
     // 既存の article_translations テーブルに translated_content NOT NULL 制約があれば、再作成して制約を外す
     this.migrateTranslationsTable();
+    this.cleanupMojibakeArticles();
+    this.clearMojibakeFullContent();
     this.save();
     this.seedDefaultFeeds();
     this.syncDefaultFeeds();
   }
 
-  // DEFAULT_FEEDS の最新状態（enabled/url/category）をDBに反映
+  // バージョン管理付きクリーンアップ: 過去の文字化けで保存された記事を削除（次回フェッチで再取得される）
+  // v3: 強制的に全記事を削除してフルリフェッチ（fetcher.ts の文字コード対応が反映されてからの初回起動時に1回だけ実行）
+  private cleanupMojibakeArticles() {
+    const FORCE_KEY = "force_full_rebuild_v3";
+    if (!this.getMeta(FORCE_KEY)) {
+      this.db.run("DELETE FROM article_translations");
+      this.db.run("DELETE FROM article_clips");
+      this.db.run("DELETE FROM articles");
+      this.setMeta(FORCE_KEY, new Date().toISOString());
+      // パターンクリーンアップは飛ばす（全削除済み）
+      this.setMeta("mojibake_cleanup_v2", new Date().toISOString());
+      return;
+    }
+
+    const KEY = "mojibake_cleanup_v2";
+    if (this.getMeta(KEY)) return;
+
+    // U+FFFD（置換文字）/ Shift_JIS バイト列が UTF-8 として解釈された時に頻出する漢字 /
+    // UTF-8 バイトが Latin-1 として解釈された時に頻出する文字（Ã, â, etc.）
+    const patterns = [
+      "%�%",
+      "%縺%", "%繧%", "%繝%", "%蛻%", "%邨%", "%譁%", "%蜿%",
+      "%闃%", "%闍%", "%闖%", "%闕%", "%闚%", "%闠%",
+      "%蜈%", "%蜉%", "%蜊%", "%蝟%", "%蝣%", "%蝪%",
+      "%諡%", "%諤%", "%譌%", "%譏%", "%譎%", "%譚%", "%譛%",
+      "%Ã%", "%Â%", "%â€%", "%ï¿½%",
+    ];
+    for (const p of patterns) {
+      this.db.run(
+        `DELETE FROM article_translations WHERE article_id IN
+           (SELECT id FROM articles WHERE title LIKE ? OR summary LIKE ?)`,
+        [p, p]
+      );
+      this.db.run(
+        `DELETE FROM article_clips WHERE article_id IN
+           (SELECT id FROM articles WHERE title LIKE ? OR summary LIKE ?)`,
+        [p, p]
+      );
+      this.db.run(
+        "DELETE FROM articles WHERE title LIKE ? OR summary LIKE ?",
+        [p, p]
+      );
+    }
+    this.setMeta(KEY, new Date().toISOString());
+  }
+
+  // 過去に extractor で UTF-8 として誤デコードされ、Shift_JIS / EUC-JP 由来の文字化けを含む
+  // full_content をクリア（記事自体は残し、次回詳細を開いた時に正しい charset で再取得させる）
+  private clearMojibakeFullContent() {
+    const KEY = "full_content_cleanup_v1";
+    if (this.getMeta(KEY)) return;
+
+    const patterns = [
+      "%�%",
+      "%縺%", "%繧%", "%繝%", "%蛻%", "%邨%", "%譁%", "%蜿%",
+      "%闃%", "%蜈%", "%蝟%", "%諡%", "%譌%", "%譏%", "%譎%",
+      "%Ã%", "%Â%", "%â€%", "%ï¿½%",
+    ];
+    for (const p of patterns) {
+      this.db.run(
+        "UPDATE articles SET full_content = NULL WHERE full_content LIKE ?",
+        [p]
+      );
+    }
+    this.setMeta(KEY, new Date().toISOString());
+  }
+
+  // 全記事を削除して再取得用にクリーンスレートにする（クリップ紐付けは消えるが、クリップ定義は残る）
+  rebuildAllArticles(): { deleted: number } {
+    const before = this.queryOne<{ c: number }>("SELECT COUNT(*) AS c FROM articles")?.c ?? 0;
+    this.db.run("DELETE FROM article_translations");
+    this.db.run("DELETE FROM article_clips");
+    this.db.run("DELETE FROM articles");
+    this.save();
+    return { deleted: before };
+  }
+
+  private getMeta(key: string): string | null {
+    const row = this.queryOne<{ value: string }>("SELECT value FROM app_meta WHERE key = ?", [key]);
+    return row?.value ?? null;
+  }
+
+  private setMeta(key: string, value: string) {
+    this.db.run(
+      "INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      [key, value]
+    );
+  }
+
+  // DEFAULT_FEEDS の最新状態をDBに反映
+  // - 新規フィードは enabled=デフォルト で挿入
+  // - 既存フィードの URL/category は同期するが、ユーザーが切替えた enabled は尊重する
+  // - DEFAULT_FEEDS から外れた古いフィード（DEPRECATED_FEED_NAMES）は強制的に無効化
   private syncDefaultFeeds() {
     let changed = false;
+    const DEPRECATED_FEED_NAMES = ["読売新聞", "Reuters Top"];
+
     for (const f of DEFAULT_FEEDS) {
-      const existing = this.queryOne<any>("SELECT id, url, enabled, category FROM feeds WHERE name = ?", [f.name]);
-      if (!existing) continue;
-      const enabledNum = f.enabled ? 1 : 0;
-      if (existing.url !== f.url || existing.enabled !== enabledNum || existing.category !== f.category) {
+      const existing = this.queryOne<any>(
+        "SELECT id, url, category FROM feeds WHERE name = ?",
+        [f.name]
+      );
+      if (!existing) {
         this.db.run(
-          "UPDATE feeds SET url = ?, enabled = ?, category = ? WHERE name = ?",
-          [f.url, enabledNum, f.category, f.name]
+          `INSERT OR IGNORE INTO feeds (name, url, category, region, language, enabled)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [f.name, f.url, f.category, f.region, f.language, f.enabled ? 1 : 0]
+        );
+        changed = true;
+        continue;
+      }
+      if (existing.url !== f.url || existing.category !== f.category) {
+        this.db.run(
+          "UPDATE feeds SET url = ?, category = ? WHERE name = ?",
+          [f.url, f.category, f.name]
         );
         changed = true;
       }
     }
+
+    for (const name of DEPRECATED_FEED_NAMES) {
+      const existing = this.queryOne<any>(
+        "SELECT enabled FROM feeds WHERE name = ?",
+        [name]
+      );
+      if (existing && existing.enabled === 1) {
+        this.db.run("UPDATE feeds SET enabled = 0 WHERE name = ?", [name]);
+        changed = true;
+      }
+    }
+
     if (changed) this.save();
   }
 
@@ -175,11 +297,19 @@ class NewsDatabase {
   // ===== Articles =====
 
   insertArticles(articles: Omit<Article, "id">[]) {
+    // UPSERT: 既存記事は title/summary/image_url を最新状態に更新（既読状態は保持）
     for (const a of articles) {
       this.db.run(
-        `INSERT OR IGNORE INTO articles
+        `INSERT INTO articles
            (guid, title, url, summary, source, category, published_at, fetched_at, status, image_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(guid) DO UPDATE SET
+           title     = excluded.title,
+           summary   = excluded.summary,
+           url       = excluded.url,
+           image_url = excluded.image_url,
+           source    = excluded.source,
+           category  = excluded.category`,
         [a.guid, a.title, a.url, a.summary ?? null, a.source, a.category,
          a.publishedAt, a.fetchedAt, a.status, a.imageUrl ?? null]
       );
@@ -406,9 +536,7 @@ class NewsDatabase {
   }
 
   private buildOrder(filter: FilterOptions): string {
-    const col = filter.sortKey === "publishedAt" ? "published_at"
-              : filter.sortKey === "source"      ? "source"
-              : "category";
+    const col = filter.sortKey === "source" ? "source" : "published_at";
     return `ORDER BY ${col} ${filter.sortOrder === "asc" ? "ASC" : "DESC"}`;
   }
 

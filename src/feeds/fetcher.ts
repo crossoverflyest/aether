@@ -1,4 +1,5 @@
 import Parser from "rss-parser";
+import iconv from "iconv-lite";
 import { db } from "../db/database";
 import type { Article } from "../shared/types";
 
@@ -10,8 +11,6 @@ interface CustomItem {
 }
 
 const parser: Parser<{}, CustomItem> = new Parser({
-  timeout: 10000,
-  headers: { "User-Agent": "NewsDesktop/0.1" },
   customFields: {
     item: [
       ["content:encoded", "contentEncoded"],
@@ -21,6 +20,8 @@ const parser: Parser<{}, CustomItem> = new Parser({
     ],
   },
 });
+
+const FETCH_TIMEOUT_MS = 10_000;
 
 export async function fetchAllFeeds(): Promise<void> {
   const feeds = db.getEnabledFeeds();
@@ -44,13 +45,14 @@ async function fetchFeed(
   category: string,
   fetchedAt: string
 ): Promise<void> {
-  const feed = await parser.parseURL(url);
+  const xml = await fetchAndDecode(url);
+  const feed = await parser.parseString(xml);
 
   const articles: Omit<Article, "id">[] = (feed.items ?? [])
     .filter(item => item.title && item.link)
     .map(item => ({
       guid:        item.guid ?? item.link!,
-      title:       item.title!.trim(),
+      title:       decodeHtmlEntities(item.title!.trim()),
       url:         item.link!,
       summary:     extractSummary(item),
       source:      sourceName,
@@ -63,6 +65,49 @@ async function fetchFeed(
 
   if (articles.length > 0) db.insertArticles(articles);
   db.upsertFeedFetched(feedId, fetchedAt);
+}
+
+async function fetchAndDecode(url: string): Promise<string> {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "NewsDesktop/0.1" },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  const charset = resolveCharset(res.headers.get("content-type"), buf);
+
+  if (iconv.encodingExists(charset)) {
+    return iconv.decode(buf, charset);
+  }
+  return buf.toString("utf8");
+}
+
+function resolveCharset(contentType: string | null, head: Buffer): string {
+  const fromHeader = parseCharsetFromContentType(contentType);
+  if (fromHeader) return normalizeCharset(fromHeader);
+
+  const sniff = head.subarray(0, Math.min(2048, head.length)).toString("latin1");
+  const xmlMatch = sniff.match(/<\?xml[^>]*encoding=["']([^"']+)["']/i);
+  if (xmlMatch) return normalizeCharset(xmlMatch[1]);
+
+  const metaMatch = sniff.match(/<meta[^>]+charset=["']?([a-z0-9_\-]+)/i);
+  if (metaMatch) return normalizeCharset(metaMatch[1]);
+
+  return "utf-8";
+}
+
+function parseCharsetFromContentType(ct: string | null): string | null {
+  if (!ct) return null;
+  const m = ct.match(/charset=([^;\s]+)/i);
+  return m ? m[1].trim() : null;
+}
+
+function normalizeCharset(raw: string): string {
+  const lower = raw.toLowerCase().trim().replace(/^["']|["']$/g, "");
+  if (lower === "shift-jis" || lower === "x-sjis" || lower === "ms_kanji") return "shift_jis";
+  if (lower === "euc_jp") return "euc-jp";
+  return lower;
 }
 
 function extractSummary(item: any): string | null {
@@ -83,21 +128,57 @@ function extractSummary(item: any): string | null {
 }
 
 function stripHtml(html: string): string {
-  return html
+  const withoutTags = html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&hellip;/g, "…")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/<[^>]+>/g, " ");
+  return decodeHtmlEntities(withoutTags)
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 1500);
+}
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
+  hellip: "…", mdash: "—", ndash: "–", minus: "-",
+  copy: "©", reg: "®", trade: "™",
+  laquo: "«", raquo: "»",
+  lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”",
+  middot: "·", bull: "•", deg: "°",
+  yen: "¥", pound: "£", euro: "€", cent: "¢",
+  times: "×", divide: "÷",
+  Agrave: "À", Aacute: "Á", Acirc: "Â", Atilde: "Ã", Auml: "Ä", Aring: "Å",
+  agrave: "à", aacute: "á", acirc: "â", atilde: "ã", auml: "ä", aring: "å",
+  Egrave: "È", Eacute: "É", Ecirc: "Ê", Euml: "Ë",
+  egrave: "è", eacute: "é", ecirc: "ê", euml: "ë",
+  Igrave: "Ì", Iacute: "Í", Icirc: "Î", Iuml: "Ï",
+  igrave: "ì", iacute: "í", icirc: "î", iuml: "ï",
+  Ograve: "Ò", Oacute: "Ó", Ocirc: "Ô", Otilde: "Õ", Ouml: "Ö",
+  ograve: "ò", oacute: "ó", ocirc: "ô", otilde: "õ", ouml: "ö",
+  Ugrave: "Ù", Uacute: "Ú", Ucirc: "Û", Uuml: "Ü",
+  ugrave: "ù", uacute: "ú", ucirc: "û", uuml: "ü",
+  Ntilde: "Ñ", ntilde: "ñ", szlig: "ß",
+  ccedil: "ç", Ccedil: "Ç",
+  iexcl: "¡", iquest: "¿",
+};
+
+function decodeHtmlEntities(s: string): string {
+  if (!s.includes("&")) return s;
+  return s
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => safeFromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => safeFromCodePoint(Number(n)))
+    .replace(/&([a-zA-Z][a-zA-Z0-9]*);/g, (m, name) =>
+      NAMED_ENTITIES[name] ?? NAMED_ENTITIES[name.toLowerCase()] ?? m
+    );
+}
+
+function safeFromCodePoint(code: number): string {
+  if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return "";
+  }
 }
 
 function extractImage(item: any): string | null {

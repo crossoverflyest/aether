@@ -6,9 +6,10 @@ interface Props {
   selected: boolean;
   onSelect: (a: Article) => void;
   translatedTitle: string | null;
+  onContextMenu: (a: Article, x: number, y: number) => void;
 }
 
-export default function ArticleRow({ article, selected, onSelect, translatedTitle }: Props) {
+export default function ArticleRow({ article, selected, onSelect, translatedTitle, onContextMenu }: Props) {
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -17,10 +18,16 @@ export default function ArticleRow({ article, selected, onSelect, translatedTitl
     }
   }, [selected]);
 
+  const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    onContextMenu(article, e.clientX, e.clientY);
+  };
+
   return (
     <div
       ref={rowRef}
       onClick={() => onSelect(article)}
+      onContextMenu={handleContextMenu}
       className={`px-4 py-2 cursor-pointer border-b border-slate-800 transition-colors
         ${selected ? "bg-sky-900/60" : "hover:bg-slate-800"}
         ${article.status === "unread" ? "" : "opacity-60"}`}
